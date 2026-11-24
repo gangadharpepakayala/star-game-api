@@ -27,7 +27,7 @@
     {
       "binding": "DB",
       "database_name": "star-game-db",
-      "database_id": "local-star-game-db",
+      "database_id": "b2ad30d5-877b-4d65-a15f-0078f98e2ff9",
       "migrations_table": "d1_migrations",
       "migrations_dir": "migrations"
     }

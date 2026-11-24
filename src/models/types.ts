@@ -80,6 +80,7 @@ export interface PublicRoomState {
   currentTurnPlayerId: string | null;
   turnTimeRemaining: number;
   players: PublicPlayerInfo[];
+  turnOrder?: string[];
   lastExchange?: {
     fromPlayerId: string;
     toPlayerId: string;

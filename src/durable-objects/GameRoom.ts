@@ -373,6 +373,10 @@ export class GameRoom extends DurableObject<Env> {
         await this.onRequestNextRound(ws, playerId, state);
         break;
       }
+      case 'end_game': {
+        await this.onEndGame(ws, playerId, state);
+        break;
+      }
       case 'leave_room': {
         await this.onLeaveRoom(ws, playerId, state);
         break;
@@ -586,8 +590,9 @@ export class GameRoom extends DurableObject<Env> {
       state.playerHands[pId] = hand;
     }
 
-    // First turn goes to host or first player
-    state.currentTurnPlayerId = state.turnOrder[0];
+    // First turn goes randomly to any player in the room
+    const randomStartIndex = Math.floor(Math.random() * state.turnOrder.length);
+    state.currentTurnPlayerId = state.turnOrder[randomStartIndex];
     state.turnTimeRemaining = 30;
     state.turnStartedTimestamp = Date.now();
 
@@ -861,6 +866,12 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (state.roomStatus === 'COMPLETED') {
+      this.broadcast('round_countdown_started', {
+        countdownSeconds: 3,
+        nextRoundNumber: 1,
+      });
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
       // Play Again: reset match and scores
       state.currentRound = 1;
       state.matchId = `match_${state.roomId}_${Date.now()}`;
@@ -874,29 +885,95 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (state.roomStatus === 'ROUND_COMPLETED') {
-      state.currentRound += 1;
+      const nextRound = state.currentRound + 1;
+      this.broadcast('round_countdown_started', {
+        countdownSeconds: 3,
+        nextRoundNumber: nextRound,
+      });
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      state.currentRound = nextRound;
       await this.startRound(state);
       this.broadcast('next_round_started', { roundNumber: state.currentRound });
     }
   }
 
   /**
+   * Host ends game completely
+   */
+  private async onEndGame(ws: WebSocket, playerId: string, state: StoredRoomState): Promise<void> {
+    const player = state.players[playerId];
+    if (!player || !player.isHost) {
+      this.sendError(ws, 'Only the host can end the game.');
+      return;
+    }
+
+    if (this.turnTimerInterval) {
+      clearInterval(this.turnTimerInterval);
+      this.turnTimerInterval = null;
+    }
+
+    state.roomStatus = 'COMPLETED';
+    const leaderboard = this.calculateLeaderboard(state);
+    const champion = leaderboard[0];
+    await this.saveRoomState(state);
+
+    if (state.matchId) {
+      this.ctx.waitUntil(
+        this.dbRepo.recordGameCompletion(
+          state.matchId,
+          champion.playerId,
+          leaderboard.map(l => ({
+            playerId: l.playerId,
+            totalPoints: l.totalPoints,
+            isChampion: l.playerId === champion.playerId,
+          }))
+        )
+      );
+    }
+
+    this.broadcast('game_completed', {
+      championPlayerId: champion.playerId,
+      championPlayerName: champion.playerName,
+      championAvatar: champion.avatarUrl,
+      finalLeaderboard: leaderboard,
+      endedByHost: true,
+    });
+
+    this.broadcastRoomUpdate(state);
+  }
+
+  /**
    * Leave room
    */
   private async onLeaveRoom(ws: WebSocket, playerId: string, state: StoredRoomState): Promise<void> {
-    delete state.players[playerId];
-    delete state.playerHands[playerId];
-    state.turnOrder = state.turnOrder.filter(id => id !== playerId);
-    state.submittedCards = state.submittedCards.filter(c => c.playerId !== playerId);
+    if (state.roomStatus === 'IN_PROGRESS' || state.roomStatus === 'ROUND_COMPLETED') {
+      // In active game: preserve seats and hands so player can rejoin via room code + password
+      if (state.players[playerId]) {
+        state.players[playerId].isConnected = false;
+        state.players[playerId].lastActive = Date.now();
+      }
+    } else {
+      delete state.players[playerId];
+      delete state.playerHands[playerId];
+      state.turnOrder = state.turnOrder.filter(id => id !== playerId);
+      state.submittedCards = state.submittedCards.filter(c => c.playerId !== playerId);
+    }
 
-    if (Object.keys(state.players).length === 0) {
+    const activePlayers = Object.values(state.players);
+    if (activePlayers.length === 0 || activePlayers.every(p => !p.isConnected && state.roomStatus === 'WAITING')) {
       state.roomStatus = 'CANCELLED';
-      if (this.timerInterval) clearInterval(this.timerInterval);
+      if (this.turnTimerInterval) {
+        clearInterval(this.turnTimerInterval);
+        this.turnTimerInterval = null;
+      }
     } else if (state.hostPlayerId === playerId) {
-      // Migrate host to first remaining player
-      const nextHost = Object.values(state.players)[0];
-      nextHost.isHost = true;
-      state.hostPlayerId = nextHost.id;
+      // Migrate host to first remaining connected player
+      const nextHost = activePlayers.find(p => p.isConnected) || activePlayers[0];
+      if (nextHost) {
+        nextHost.isHost = true;
+        state.hostPlayerId = nextHost.id;
+      }
     }
 
     await this.saveRoomState(state);
@@ -1021,6 +1098,7 @@ export class GameRoom extends DurableObject<Env> {
       currentTurnPlayerId: state.currentTurnPlayerId,
       turnTimeRemaining: state.turnTimeRemaining,
       players,
+      turnOrder: state.turnOrder || [],
     };
   }
 

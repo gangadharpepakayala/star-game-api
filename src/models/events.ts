@@ -8,6 +8,7 @@ export type ClientEventType =
   | 'exchange_card'
   | 'declare_winner'
   | 'request_next_round'
+  | 'end_game'
   | 'leave_room'
   | 'heartbeat';
 
@@ -25,6 +26,7 @@ export type ServerEventType =
   | 'winner_validated'
   | 'invalid_winner_claim'
   | 'round_completed'
+  | 'round_countdown_started'
   | 'leaderboard_updated'
   | 'next_round_started'
   | 'game_completed'
@@ -75,6 +77,10 @@ export interface RequestNextRoundPayload {
   token: string;
 }
 
+export interface EndGamePayload {
+  token: string;
+}
+
 export interface LeaveRoomPayload {
   token: string;
 }
@@ -121,11 +127,17 @@ export interface RoundCompletedPayload {
   isFinalRound: boolean;
 }
 
+export interface RoundCountdownStartedPayload {
+  countdownSeconds: number;
+  nextRoundNumber: number;
+}
+
 export interface GameCompletedPayload {
   championPlayerId: string;
   championPlayerName: string;
   championAvatar: string;
   finalLeaderboard: LeaderboardEntry[];
+  endedByHost?: boolean;
 }
 
 export interface ErrorPayload {
@@ -141,5 +153,6 @@ export type ClientMessage =
   | BaseSocketMessage<'exchange_card', ExchangeCardPayload>
   | BaseSocketMessage<'declare_winner', DeclareWinnerPayload>
   | BaseSocketMessage<'request_next_round', RequestNextRoundPayload>
+  | BaseSocketMessage<'end_game', EndGamePayload>
   | BaseSocketMessage<'leave_room', LeaveRoomPayload>
   | BaseSocketMessage<'heartbeat', { token: string }>;
