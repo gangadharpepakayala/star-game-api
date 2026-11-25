@@ -126,7 +126,8 @@ describe('Star Game Engine & Rules Unit Tests', () => {
     expect(GameValidators.validateRoomName('Jungle Room').valid).toBe(true);
 
     expect(GameValidators.validateMaxPlayers(1).valid).toBe(false);
-    expect(GameValidators.validateMaxPlayers(9).valid).toBe(false);
+    expect(GameValidators.validateMaxPlayers(16).valid).toBe(false);
+    expect(GameValidators.validateMaxPlayers(15).valid).toBe(true);
     expect(GameValidators.validateMaxPlayers(4).valid).toBe(true);
 
     expect(GameValidators.validateTotalRounds(0).valid).toBe(false);

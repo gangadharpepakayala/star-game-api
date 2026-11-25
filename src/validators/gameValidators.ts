@@ -7,8 +7,8 @@ export class GameValidators {
   }
 
   public static validateMaxPlayers(max: number): { valid: boolean; error?: string } {
-    if (!Number.isInteger(max) || max < 2 || max > 8) {
-      return { valid: false, error: 'Max players must be an integer between 2 and 8.' };
+    if (!Number.isInteger(max) || max < 2 || max > 15) {
+      return { valid: false, error: 'Max players must be an integer between 2 and 15.' };
     }
     return { valid: true };
   }
