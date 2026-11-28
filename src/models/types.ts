@@ -77,6 +77,8 @@ export interface PublicRoomState {
   currentRound: number;
   roomVisibility: RoomVisibility;
   roomStatus: RoomStatus;
+  isPaused?: boolean;
+  pausedByPlayerName?: string;
   currentTurnPlayerId: string | null;
   turnTimeRemaining: number;
   players: PublicPlayerInfo[];

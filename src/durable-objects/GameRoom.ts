@@ -27,6 +27,8 @@ interface StoredRoomState {
   roomVisibility: 'PUBLIC' | 'PRIVATE';
   passwordHash?: string;
   roomStatus: RoomStatus;
+  isPaused?: boolean;
+  pausedByPlayerName?: string;
   currentTurnPlayerId: string | null;
   turnTimeRemaining: number;
   turnStartedTimestamp: number;
@@ -373,6 +375,14 @@ export class GameRoom extends DurableObject<Env> {
         await this.onRequestNextRound(ws, playerId, state);
         break;
       }
+      case 'pause_game': {
+        await this.onPauseGame(ws, playerId, state);
+        break;
+      }
+      case 'resume_game': {
+        await this.onResumeGame(ws, playerId, state);
+        break;
+      }
       case 'end_game': {
         await this.onEndGame(ws, playerId, state);
         break;
@@ -626,6 +636,11 @@ export class GameRoom extends DurableObject<Env> {
         return;
       }
 
+      if (state.isPaused) {
+        // Paused by host: do not count down the timer
+        return;
+      }
+
       state.turnTimeRemaining = Math.max(0, state.turnTimeRemaining - 1);
 
       if (state.turnTimeRemaining <= 0) {
@@ -679,6 +694,11 @@ export class GameRoom extends DurableObject<Env> {
   ): Promise<void> {
     if (state.roomStatus !== 'IN_PROGRESS') {
       this.sendError(ws, 'No active round in progress.');
+      return;
+    }
+
+    if (state.isPaused) {
+      this.sendError(ws, 'The game is currently paused by the host.');
       return;
     }
 
@@ -746,6 +766,11 @@ export class GameRoom extends DurableObject<Env> {
   private async onDeclareWinner(ws: WebSocket, playerId: string, state: StoredRoomState): Promise<void> {
     if (state.roomStatus !== 'IN_PROGRESS') {
       this.sendError(ws, 'Cannot declare winner: no active round.');
+      return;
+    }
+
+    if (state.isPaused) {
+      this.sendError(ws, 'The game is currently paused by the host.');
       return;
     }
 
@@ -899,6 +924,56 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   /**
+   * Host pauses game
+   */
+  private async onPauseGame(ws: WebSocket, playerId: string, state: StoredRoomState): Promise<void> {
+    const player = state.players[playerId];
+    if (!player || !player.isHost) {
+      this.sendError(ws, 'Only the host can pause the game.');
+      return;
+    }
+
+    if (state.roomStatus !== 'IN_PROGRESS') {
+      this.sendError(ws, 'Can only pause a game in progress.');
+      return;
+    }
+
+    state.isPaused = true;
+    state.pausedByPlayerName = player.name;
+    await this.saveRoomState(state);
+
+    this.broadcast('game_paused', {
+      isPaused: true,
+      pausedBy: player.name,
+    });
+    this.broadcastRoomUpdate(state);
+  }
+
+  /**
+   * Host resumes paused game
+   */
+  private async onResumeGame(ws: WebSocket, playerId: string, state: StoredRoomState): Promise<void> {
+    const player = state.players[playerId];
+    if (!player || !player.isHost) {
+      this.sendError(ws, 'Only the host can resume the game.');
+      return;
+    }
+
+    if (!state.isPaused) {
+      return;
+    }
+
+    state.isPaused = false;
+    state.pausedByPlayerName = undefined;
+    await this.saveRoomState(state);
+
+    this.broadcast('game_resumed', {
+      isPaused: false,
+    });
+    this.broadcastRoomUpdate(state);
+  }
+
+  /**
    * Host ends game completely
    */
   private async onEndGame(ws: WebSocket, playerId: string, state: StoredRoomState): Promise<void> {
@@ -908,9 +983,9 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
 
-    if (this.turnTimerInterval) {
-      clearInterval(this.turnTimerInterval);
-      this.turnTimerInterval = null;
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = undefined as any;
     }
 
     state.roomStatus = 'COMPLETED';
@@ -963,9 +1038,9 @@ export class GameRoom extends DurableObject<Env> {
     const activePlayers = Object.values(state.players);
     if (activePlayers.length === 0 || activePlayers.every(p => !p.isConnected && state.roomStatus === 'WAITING')) {
       state.roomStatus = 'CANCELLED';
-      if (this.turnTimerInterval) {
-        clearInterval(this.turnTimerInterval);
-        this.turnTimerInterval = null;
+      if (this.timerInterval) {
+        clearInterval(this.timerInterval);
+        this.timerInterval = undefined as any;
       }
     } else if (state.hostPlayerId === playerId) {
       // Migrate host to first remaining connected player
@@ -1095,6 +1170,8 @@ export class GameRoom extends DurableObject<Env> {
       currentRound: state.currentRound,
       roomVisibility: state.roomVisibility,
       roomStatus: state.roomStatus,
+      isPaused: !!state.isPaused,
+      pausedByPlayerName: state.pausedByPlayerName,
       currentTurnPlayerId: state.currentTurnPlayerId,
       turnTimeRemaining: state.turnTimeRemaining,
       players,

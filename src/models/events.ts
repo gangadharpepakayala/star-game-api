@@ -8,6 +8,8 @@ export type ClientEventType =
   | 'exchange_card'
   | 'declare_winner'
   | 'request_next_round'
+  | 'pause_game'
+  | 'resume_game'
   | 'end_game'
   | 'leave_room'
   | 'heartbeat';
@@ -29,6 +31,8 @@ export type ServerEventType =
   | 'round_countdown_started'
   | 'leaderboard_updated'
   | 'next_round_started'
+  | 'game_paused'
+  | 'game_resumed'
   | 'game_completed'
   | 'player_disconnected'
   | 'player_reconnected'
@@ -153,6 +157,8 @@ export type ClientMessage =
   | BaseSocketMessage<'exchange_card', ExchangeCardPayload>
   | BaseSocketMessage<'declare_winner', DeclareWinnerPayload>
   | BaseSocketMessage<'request_next_round', RequestNextRoundPayload>
+  | BaseSocketMessage<'pause_game', { token?: string }>
+  | BaseSocketMessage<'resume_game', { token?: string }>
   | BaseSocketMessage<'end_game', EndGamePayload>
   | BaseSocketMessage<'leave_room', LeaveRoomPayload>
   | BaseSocketMessage<'heartbeat', { token: string }>;
